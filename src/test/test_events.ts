@@ -138,6 +138,7 @@ describe('events', function() {
       drainDelay: 1,
     });
 
+    // Trigger error inside event handler (bar is undefined)
     worker.once('completed', (job: any) => {
       console.log(job.bar.id);
     });

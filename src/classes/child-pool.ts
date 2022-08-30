@@ -1,12 +1,9 @@
 import { ChildProcess, fork } from 'child_process';
 import * as path from 'path';
-import { values, flatten } from 'lodash';
-import * as getPort from 'get-port';
-import * as fs from 'fs';
-import { promisify } from 'util';
+import { flatten } from 'lodash';
 import { killAsync } from './process-utils';
-
-const stat = promisify(fs.stat);
+import { ParentCommand, ChildCommand } from '../interfaces';
+import { parentSend } from '../utils';
 
 const CHILD_KILL_TIMEOUT = 30_000;
 
@@ -24,7 +21,7 @@ const convertExecArgv = async (execArgv: string[]): Promise<string[]> => {
       standard.push(arg);
     } else {
       const argName = arg.split('=')[0];
-      const port = await getPort();
+      const port = await (await import('get-port')).default();
       convertedArgs.push(`${argName}=${port}`);
     }
   }
@@ -53,15 +50,19 @@ const exitCodesErrors: { [index: number]: string } = {
 async function initChild(child: ChildProcess, processFile: string) {
   const onComplete = new Promise<void>((resolve, reject) => {
     const onMessageHandler = (msg: any) => {
-      if (msg.cmd === 'init-complete') {
+      if (msg.cmd === ParentCommand.InitCompleted) {
         resolve();
-      } else if (msg.cmd === 'init-failed') {
-        reject(new Error(msg.err));
+      } else if (msg.cmd === ParentCommand.InitFailed) {
+        const err = new Error();
+        err.stack = msg.err.stack;
+        err.message = msg.err.message;
+        reject(err);
       }
       child.off('message', onMessageHandler);
+      child.off('close', onCloseHandler);
     };
-    child.on('message', onMessageHandler);
-    child.on('close', (code, signal) => {
+
+    const onCloseHandler = (code: number, signal: number) => {
       if (code > 128) {
         code -= 128;
       }
@@ -69,17 +70,25 @@ async function initChild(child: ChildProcess, processFile: string) {
       reject(
         new Error(`Error initializing child: ${msg} and signal ${signal}`),
       );
-    });
+      child.off('message', onMessageHandler);
+      child.off('close', onCloseHandler);
+    };
+
+    child.on('message', onMessageHandler);
+    child.on('close', onCloseHandler);
   });
-  await new Promise(resolve =>
-    child.send({ cmd: 'init', value: processFile }, resolve),
-  );
+
+  await parentSend(child, { cmd: ChildCommand.Init, value: processFile });
   await onComplete;
 }
 
 export class ChildPool {
   retained: { [key: number]: ChildProcessExt } = {};
   free: { [key: string]: ChildProcessExt[] } = {};
+
+  constructor(
+    private masterFile = path.join(process.cwd(), 'dist/cjs/classes/master.js'),
+  ) {}
 
   async retain(processFile: string): Promise<ChildProcessExt> {
     const _this = this;
@@ -92,15 +101,7 @@ export class ChildPool {
 
     const execArgv = await convertExecArgv(process.execArgv);
 
-    let masterFile = path.join(__dirname, './master.js');
-    try {
-      await stat(masterFile); // would throw if file not exists
-    } catch (_) {
-      masterFile = path.join(process.cwd(), 'dist/classes/master.js');
-      await stat(masterFile);
-    }
-
-    child = fork(masterFile, [], { execArgv, stdio: 'pipe' });
+    child = fork(this.masterFile, [], { execArgv, stdio: 'pipe' });
     child.processFile = processFile;
 
     _this.retained[child.pid] = child;
@@ -114,12 +115,12 @@ export class ChildPool {
     return child;
   }
 
-  release(child: ChildProcessExt) {
+  release(child: ChildProcessExt): void {
     delete this.retained[child.pid];
     this.getFree(child.processFile).push(child);
   }
 
-  remove(child: ChildProcessExt) {
+  remove(child: ChildProcessExt): void {
     delete this.retained[child.pid];
 
     const free = this.getFree(child.processFile);
@@ -130,13 +131,16 @@ export class ChildPool {
     }
   }
 
-  async kill(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL' = 'SIGKILL') {
+  async kill(
+    child: ChildProcess,
+    signal: 'SIGTERM' | 'SIGKILL' = 'SIGKILL',
+  ): Promise<void> {
     this.remove(child);
     await killAsync(child, signal, CHILD_KILL_TIMEOUT);
   }
 
-  async clean() {
-    const children = values(this.retained).concat(this.getAllFree());
+  async clean(): Promise<void> {
+    const children = Object.values(this.retained).concat(this.getAllFree());
     this.retained = {};
     this.free = {};
 
@@ -147,7 +151,7 @@ export class ChildPool {
     return (this.free[id] = this.free[id] || []);
   }
 
-  getAllFree() {
-    return flatten(values(this.free));
+  getAllFree(): ChildProcessExt[] {
+    return flatten(Object.values(this.free));
   }
 }

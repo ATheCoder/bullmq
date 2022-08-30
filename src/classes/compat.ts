@@ -20,6 +20,7 @@
 // TypeScript Version: 2.8
 
 import { EventEmitter } from 'events';
+import { JobType } from '../types';
 import { Job } from './job';
 import { QueueScheduler } from './queue-scheduler';
 import { Queue } from './queue';
@@ -27,12 +28,12 @@ import { Worker } from './worker';
 import { QueueEvents } from './queue-events';
 import {
   JobsOptions,
+  Processor,
   QueueOptions,
-  RepeatOptions,
   QueueEventsOptions,
   QueueSchedulerOptions,
+  RepeatOptions,
   WorkerOptions,
-  Processor,
 } from '../interfaces';
 
 type CommonOptions = QueueSchedulerOptions &
@@ -40,6 +41,9 @@ type CommonOptions = QueueSchedulerOptions &
   WorkerOptions &
   QueueEventsOptions;
 
+/**
+ * @deprecated Use Queue class instead {@link https://docs.bullmq.io/guide/queues}
+ */
 export class Queue3<T = any> extends EventEmitter {
   /**
    * The name of the queue
@@ -272,9 +276,11 @@ export class Queue3<T = any> extends EventEmitter {
    *
    * name: The name of the to be removed job
    */
-  async removeRepeatable(name: string, opts: RepeatOptions): Promise<void> {
+  async removeRepeatable(name: string, opts: RepeatOptions): Promise<boolean> {
     const repeat = await this.queue.repeat;
-    return repeat.removeRepeatable(name, opts, opts.jobId);
+    const removed = await repeat.removeRepeatable(name, opts, opts.jobId);
+
+    return !removed;
   }
 
   /**
@@ -309,7 +315,7 @@ export class Queue3<T = any> extends EventEmitter {
    * Optional parameters for range and ordering are provided.
    */
   getJobs(
-    types: string[] | string,
+    types: JobType[] | JobType,
     start = 0,
     end = -1,
     asc = false,
@@ -336,14 +342,14 @@ export class Queue3<T = any> extends EventEmitter {
   /**
    * Returns a promise that resolves with the job counts for the given queue.
    */
-  getJobCounts(...types: string[]): Promise<{ [index: string]: number }> {
+  getJobCounts(...types: JobType[]): Promise<{ [index: string]: number }> {
     return this.queue.getJobCounts(...types);
   }
 
   /**
    * Returns a promise that resolves with the job counts for the given queue of the given types.
    */
-  async getJobCountByTypes(...types: string[]): Promise<number> {
+  async getJobCountByTypes(...types: JobType[]): Promise<number> {
     return this.queue.getJobCountByTypes(...types);
   }
 
@@ -872,23 +878,29 @@ export interface JobPromise3 {
 }
 
 export type ActiveEventCallback3<T = any> = (
-  job: Job,
+  job: Job<T>,
   jobPromise?: JobPromise3,
 ) => void;
 
-export type StalledEventCallback3<T = any> = (job: Job) => void;
+export type StalledEventCallback3<T = any> = (job: Job<T>) => void;
 
-export type ProgressEventCallback3<T = any> = (job: Job, progress: any) => void;
+export type ProgressEventCallback3<T = any> = (
+  job: Job<T>,
+  progress: any,
+) => void;
 
-export type CompletedEventCallback3<T = any> = (job: Job, result: any) => void;
+export type CompletedEventCallback3<T = any> = (
+  job: Job<T>,
+  result: any,
+) => void;
 
-export type FailedEventCallback3<T = any> = (job: Job, error: Error) => void;
+export type FailedEventCallback3<T = any> = (job: Job<T>, error: Error) => void;
 
 export type CleanedEventCallback3<T = any> = (
-  jobs: Array<Job>,
+  jobs: Array<Job<T>>,
   status: JobStatusClean3,
 ) => void;
 
-export type RemovedEventCallback3<T = any> = (job: Job) => void;
+export type RemovedEventCallback3<T = any> = (job: Job<T>) => void;
 
 export type WaitingEventCallback3 = (jobId: string) => void;

@@ -1,9 +1,9 @@
-import { RepeatOptions } from './repeat-options';
-import { BackoffOptions } from './backoff-options';
+import { RepeatOptions, KeepJobs, BackoffOptions } from './';
 
-export interface JobsOptions {
+export interface BaseJobOptions {
   /**
-   * Timestamp when the job was created. Defaults to `Date.now()`.
+   * Timestamp when the job was created.
+   * @defaultValue Date.now()
    */
   timestamp?: number;
 
@@ -18,18 +18,15 @@ export interface JobsOptions {
    * An amount of milliseconds to wait until this job can be processed.
    * Note that for accurate delays, worker and producers
    * should have their clocks synchronized.
+   * @defaultValue 0
    */
   delay?: number;
 
   /**
    * The total number of attempts to try the job until it completes.
+   * @defaultValue 0
    */
   attempts?: number;
-
-  /**
-   * Repeat this job, for example based on a `cron` schedule.
-   */
-  repeat?: RepeatOptions;
 
   /**
    * Rate limiter key to use if rate limiter enabled.
@@ -51,10 +48,43 @@ export interface JobsOptions {
   lifo?: boolean;
 
   /**
-   * The number of milliseconds after which the job should be
-   * fail with a timeout error.
+   * If true, removes the job when it successfully completes
+   * When given an number, it specifies the maximum amount of
+   * jobs to keep, or you can provide an object specifying max
+   * age and/or count to keep.
+   * Default behavior is to keep the job in the completed set.
    */
-  timeout?: number;
+  removeOnComplete?: boolean | number | KeepJobs;
+
+  /**
+   * If true, removes the job when it fails after all attempts.
+   * When given an number, it specifies the maximum amount of
+   * jobs to keep, or you can provide an object specifying max
+   * age and/or count to keep.
+   */
+  removeOnFail?: boolean | number | KeepJobs;
+
+  /**
+   * Limits the amount of stack trace lines that will be recorded in the stacktrace.
+   */
+  stackTraceLimit?: number;
+
+  /**
+   * Limits the size in bytes of the job's data payload (as a JSON serialized string).
+   */
+  sizeLimit?: number;
+}
+
+export interface JobsOptions extends BaseJobOptions {
+  /**
+   * Repeat this job, for example based on a `cron` schedule.
+   */
+  repeat?: RepeatOptions;
+
+  /**
+   * Internal property used by repeatable jobs to save base repeat job key.
+   */
+  repeatJobKey?: string;
 
   /**
    * Override the job ID - by default, the job ID is a unique
@@ -64,26 +94,6 @@ export interface JobsOptions {
    * already exists, it will not be added.
    */
   jobId?: string;
-
-  /**
-   * If true, removes the job when it successfully completes
-   * When given an number, it specifies the maximum amount of
-   * jobs to keep.
-   * Default behavior is to keep the job in the completed set.
-   */
-  removeOnComplete?: boolean | number;
-
-  /**
-   * If true, removes the job when it fails after all attempts.
-   * When given an number, it specifies the maximum amount of
-   * jobs to keep.
-   */
-  removeOnFail?: boolean | number;
-
-  /**
-   * Limits the amount of stack trace lines that will be recorded in the stacktrace.
-   */
-  stackTraceLimit?: number;
 
   /**
    *
@@ -97,9 +107,4 @@ export interface JobsOptions {
    * Internal property used by repeatable jobs.
    */
   prevMillis?: number;
-
-  /**
-   * Limits the size in bytes of the job's data payload (as a JSON serialized string).
-   */
-  sizeLimit?: number;
 }
